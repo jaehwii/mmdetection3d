@@ -198,9 +198,34 @@ PY
 
 - build isolation 환경에서 packaging module 누락으로 `mmcv` 빌드가 실패하면
   `--no-build-isolation` 옵션으로 다시 빌드하세요.
+- **BEVFusion checkpoint는 OpenMMLab 원본을 그대로 쓰면 안 될 수
+  있습니다 — spconv 미설치 환경에서는 mmcv layout으로 변환이
+  필요합니다.** 공개 원본은 spconv로 학습돼 `pts_middle_encoder`의
+  sparse conv weight가 `(out,k,k,k,in)` (예: `(16,3,3,3,5)`)
+  layout인데, 이 README 세팅처럼 `spconv` 패키지가 없는 환경에서는
+  BEVFusion encoder가 mmcv 내장 ops로 fallback하고
+  (`IS_SPCONV2_AVAILABLE` 분기) mmcv는 `(k,k,k,in,out)`
+  (예: `(3,3,3,5,16)`) layout을 기대합니다. 연구실 서버에 배포된
+  `*_spconv2.pth`가 그 변환본입니다 (이름과 달리 내용물은 mmcv layout).
+  spconv가 설치된 환경(구세대 GPU 등, spconv wheel은 GPU arch를 탐)은
+  원본을 그대로 씁니다. **layout이 틀려도 에러가 나지 않습니다** —
+  mmengine이 non-strict load로 mismatch 텐서 21개를 건너뛰고 encoder가
+  랜덤 초기화된 채 돌아서 검출이 조용히 0건이 됩니다. 검출이 0건이면
+  먼저 아래로 layout을 확인하세요.
+
+  ```python
+  import torch
+  sd = torch.load("<ckpt>.pth", map_location="cpu")["state_dict"]
+  print(sd["pts_middle_encoder.conv_input.0.weight"].shape)
+  # spconv 미설치(이 README 세팅): (3, 3, 3, 5, 16) 이어야 정상
+  # spconv 설치 환경: (16, 3, 3, 3, 5) (원본 그대로)
+  ```
 - CUDA toolkit 12.8보다 오래된 버전은 Blackwell `compute_120`을 인식하지
-  못합니다. 전체 source에 `sm_120`을 commit하기보다 GPU별
-  `TORCH_CUDA_ARCH_LIST`를 사용하세요.
+  못합니다. mmcv 등 일반 소스 빌드는 GPU별 `TORCH_CUDA_ARCH_LIST`로
+  arch를 지정하세요. 단, BEVFusion ops(`projects/BEVFusion/setup.py`)는
+  gencode를 하드코딩하고 있어 torch가 `TORCH_CUDA_ARCH_LIST`를 무시합니다
+  — 이쪽은 setup.py가 CUDA >= 12.8일 때만 `sm_120` gencode를 자동
+  추가하는 조건부 처리로 해결돼 있습니다.
 - bbox frame 및 origin 보정은 ROS wrapper boundary에서 처리합니다. CARLA
   coordinate convention 때문에 MMDetection3D model code를 직접 patch하지
   않습니다.
