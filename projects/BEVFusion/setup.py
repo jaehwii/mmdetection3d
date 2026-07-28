@@ -28,6 +28,12 @@ def make_cuda_ext(name,
             '-gencode=arch=compute_80,code=sm_80',
             '-gencode=arch=compute_86,code=sm_86',
         ]
+        # Blackwell (sm_120) needs CUDA >= 12.8; older nvcc rejects the
+        # compute_120 flag outright, so add it only when supported.
+        if torch.version.cuda and tuple(
+                int(v) for v in torch.version.cuda.split('.')[:2]) >= (12, 8):
+            extra_compile_args['nvcc'].append(
+                '-gencode=arch=compute_120,code=sm_120')
         sources += sources_cuda
     else:
         print('Compiling {} without CUDA'.format(name))
